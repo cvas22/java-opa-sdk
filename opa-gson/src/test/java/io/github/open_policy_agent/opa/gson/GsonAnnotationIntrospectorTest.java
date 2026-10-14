@@ -150,4 +150,14 @@ class GsonAnnotationIntrospectorTest {
         .isFalse();
     assertThat(GsonAnnotationIntrospector.hasExpose(null)).isFalse();
   }
+
+  record AnnotatedRecord(@SerializedName("alt") String renamed) {}
+
+  @Test
+  void recordComponentAnnotations_areVisibleOnField() throws Exception {
+    final Field renamed = AnnotatedRecord.class.getDeclaredField("renamed");
+
+    assertThat(introspector.findPropertyName(AnnotatedRecord.class.getMethod("renamed"), renamed))
+        .isEqualTo("alt");
+  }
 }

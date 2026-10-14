@@ -5,8 +5,10 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Parameter;
+import java.lang.reflect.RecordComponent;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -60,6 +62,9 @@ final class ClassInfo {
    * weren't already discovered via getters.
    */
   static ClassInfo buildFor(Class<?> clazz) {
+    if (clazz.isRecord()) {
+      return buildForRecord(clazz);
+    }
     Constructor<?> ctor = findNoArgConstructor(clazz);
     CreatorInfo creatorInfo = findJsonCreator(clazz);
 
@@ -159,6 +164,57 @@ final class ClassInfo {
     }
 
     return new ClassInfo(props, ctor, creatorInfo);
+  }
+
+  /**
+   * Records: properties come from the record components only (other public {@code getX()} methods
+   * are ignored), and the canonical constructor is the creator unless an explicit one is annotated.
+   */
+  private static ClassInfo buildForRecord(Class<?> clazz) {
+    final RecordComponent[] components = clazz.getRecordComponents();
+    final List<PropertyInfo> props = new ArrayList<>();
+    final List<CreatorInfo.CreatorParam> params = new ArrayList<>();
+
+    for (RecordComponent component : components) {
+      final Method accessor = component.getAccessor();
+      final Field field = findBackingField(clazz, component.getName());
+      final Class<?> rawType = component.getType();
+      final Type genericType = component.getGenericType();
+
+      if (INTROSPECTOR.isIgnored(accessor, field)) {
+        params.add(CreatorInfo.CreatorParam.ignored(rawType));
+        continue;
+      }
+
+      final String jsonName = resolveJsonName(accessor, field, component.getName());
+      setAccessibleQuietly(accessor);
+      props.add(
+          new PropertyInfo(
+              jsonName,
+              accessor,
+              null,
+              setAccessibleQuietly(field) ? field : null,
+              rawType,
+              genericType,
+              INTROSPECTOR.isNonNullInclude(accessor, field)));
+      params.add(new CreatorInfo.CreatorParam(jsonName, rawType, genericType));
+    }
+
+    final CreatorInfo annotated = findJsonCreator(clazz);
+    return new ClassInfo(
+        props, null, annotated != null ? annotated : canonicalCreator(clazz, components, params));
+  }
+
+  private static CreatorInfo canonicalCreator(
+      Class<?> clazz, RecordComponent[] components, List<CreatorInfo.CreatorParam> params) {
+    final Class<?>[] componentTypes =
+        Arrays.stream(components).map(RecordComponent::getType).toArray(Class<?>[]::new);
+    try {
+      final Constructor<?> ctor = clazz.getDeclaredConstructor(componentTypes);
+      return setAccessibleQuietly(ctor) ? CreatorInfo.forConstructor(ctor, params) : null;
+    } catch (NoSuchMethodException e) {
+      return null;
+    }
   }
 
   /** Resolve field visibility from the introspector, defaulting to PUBLIC_ONLY. */

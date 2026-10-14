@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file. This
 project adheres to [Semantic Versioning](http://semver.org/).
 
+## Unreleased
+
+### Runtime, SDK, Tooling
+
+- Map Java records natively in `RegoMapper`, with no Jackson or Gson annotations
+  required; annotations remain optional overrides. Only record components are
+  mapped: any other public `getX()` method on a record is ignored (previously
+  such methods were mapped, and a record with none mapped to `{}`). Records are
+  deserialized through the canonical constructor unless a `@JsonCreator` is
+  present.
+
 ## 0.5.0
 
 This release makes status reporting resilient to transient failures, fixes

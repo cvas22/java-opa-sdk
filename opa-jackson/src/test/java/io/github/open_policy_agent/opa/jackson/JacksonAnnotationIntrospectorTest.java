@@ -257,4 +257,24 @@ class JacksonAnnotationIntrospectorTest {
     assertThat(introspector.isJsonValue(WithJsonValue.class.getMethod("single"))).isTrue();
     assertThat(introspector.isJsonValue(WithJsonValue.class.getMethod("other"))).isFalse();
   }
+
+  record AnnotatedRecord(
+      @JsonProperty("alt") String renamed,
+      @JsonIgnore String skipped,
+      @JsonInclude(JsonInclude.Include.NON_NULL) String optional) {}
+
+  @Test
+  void recordComponentAnnotations_areVisibleOnAccessorAndField() throws Exception {
+    final Class<?> type = AnnotatedRecord.class;
+    final Method renamed = type.getMethod("renamed");
+    final Field renamedField = type.getDeclaredField("renamed");
+
+    assertThat(introspector.findPropertyName(renamed, renamedField)).isEqualTo("alt");
+    assertThat(introspector.isIgnored(type.getMethod("skipped"), type.getDeclaredField("skipped")))
+        .isTrue();
+    assertThat(
+            introspector.isNonNullInclude(
+                type.getMethod("optional"), type.getDeclaredField("optional")))
+        .isTrue();
+  }
 }

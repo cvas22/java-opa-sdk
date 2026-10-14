@@ -1369,4 +1369,262 @@ class RegoMapperTest {
       return name;
     }
   }
+
+  @Nested
+  class Records {
+
+    record Point(int x, int y) {}
+
+    record Person(String name, int age, boolean active, Integer score, double ratio) {}
+
+    record CityRec(String city) {}
+
+    record Customer(
+        String id,
+        CityRec address,
+        List<CityRec> previous,
+        Map<String, CityRec> byKind,
+        Set<CityRec> others) {}
+
+    record Empty() {}
+
+    record Renamed(@JsonProperty("full_name") String name, int age) {}
+
+    record WithIgnored(String name, @JsonIgnore String secret, @JsonIgnore int count) {}
+
+    record WithCreator(String name, int n) {
+      @JsonCreator
+      static WithCreator of(@JsonProperty("name") String name) {
+        return new WithCreator(name.toUpperCase(), 99);
+      }
+    }
+
+    record NonNullComponent(@JsonInclude(JsonInclude.Include.NON_NULL) String nick, String other) {}
+
+    record Validated(int age) {
+      Validated {
+        if (age < 0) {
+          throw new IllegalArgumentException("age must be >= 0");
+        }
+      }
+    }
+
+    record ExtraGetter(String name) {
+      public String getDerived() {
+        return name + "!";
+      }
+    }
+
+    record FactoryWithIgnored(String name, @JsonIgnore String secret) {
+      @JsonCreator
+      static FactoryWithIgnored of(@JsonProperty("name") String name) {
+        return new FactoryWithIgnored(name, "from-factory");
+      }
+    }
+
+    record Box<T>(T v) {}
+
+    record Collections(List<String> tags, Map<String, Integer> counts) {}
+
+    record WithPojo(SimplePojo pojo) {}
+
+    public static class RecordHolder {
+      private Point point;
+
+      public Point getPoint() {
+        return point;
+      }
+
+      public void setPoint(Point point) {
+        this.point = point;
+      }
+    }
+
+    private <T> T roundTrip(final T value, final Class<T> type) {
+      return mapper.fromRegoValue(mapper.toRegoValue(value), type);
+    }
+
+    private RegoObject object(String key, RegoValue value) {
+      RegoObject obj = new RegoObject();
+      obj.setProp(new RegoString(key), value);
+      return obj;
+    }
+
+    @Test
+    void toRegoValueUsesComponentNames() {
+      RegoObject obj = (RegoObject) mapper.toRegoValue(new Point(3, 4));
+
+      assertThat(obj.getProperty("x")).isEqualTo(RegoInt32.of(3));
+      assertThat(obj.getProperty("y")).isEqualTo(RegoInt32.of(4));
+    }
+
+    @Test
+    void toRegoValueIgnoresNonComponentGetters() {
+      RegoObject obj = (RegoObject) mapper.toRegoValue(new ExtraGetter("a"));
+
+      assertThat(obj.getProperty("name")).isNotNull();
+      assertThat(obj.getProperty("derived")).isNull();
+    }
+
+    @Test
+    void roundTripPrimitiveAndBoxedComponents() {
+      Person original = new Person("alice", 30, true, 7, 0.5);
+
+      Person result = roundTrip(original, Person.class);
+
+      assertThat(result).isEqualTo(original);
+    }
+
+    @Test
+    void roundTripNonPublicRecord() {
+      Point result = roundTrip(new Point(1, 2), Point.class);
+
+      assertThat(result).isEqualTo(new Point(1, 2));
+    }
+
+    @Test
+    void roundTripNestedRecordsAndCollections() {
+      Customer original =
+          new Customer(
+              "c1",
+              new CityRec("Austin"),
+              List.of(new CityRec("Paris"), new CityRec("Rome")),
+              Map.of("home", new CityRec("Oslo")),
+              Set.of(new CityRec("Lima")));
+
+      Customer result = roundTrip(original, Customer.class);
+
+      assertThat(result).isEqualTo(original);
+    }
+
+    @Test
+    void roundTripEmptyRecord() {
+      RegoValue value = mapper.toRegoValue(new Empty());
+
+      assertThat(((RegoObject) value).getProperties()).isEmpty();
+      assertThat(mapper.fromRegoValue(value, Empty.class)).isEqualTo(new Empty());
+    }
+
+    @Test
+    void fromRegoValueMissingPropertyUsesDefault() {
+      Person result = mapper.fromRegoValue(object("name", new RegoString("bob")), Person.class);
+
+      assertThat(result).isEqualTo(new Person("bob", 0, false, null, 0.0));
+    }
+
+    @Test
+    void fromRegoValueRegoNullUsesDefault() {
+      RegoObject obj = object("age", RegoNull.INSTANCE);
+      obj.setProp(new RegoString("name"), RegoNull.INSTANCE);
+
+      Person result = mapper.fromRegoValue(obj, Person.class);
+
+      assertThat(result).isEqualTo(new Person(null, 0, false, null, 0.0));
+    }
+
+    @Test
+    void jsonPropertyRenamesComponent() {
+      RegoObject obj = (RegoObject) mapper.toRegoValue(new Renamed("alice", 3));
+
+      assertThat(obj.getProperty("full_name")).isEqualTo(new RegoString("alice"));
+      assertThat(obj.getProperty("name")).isNull();
+      assertThat(mapper.fromRegoValue(obj, Renamed.class)).isEqualTo(new Renamed("alice", 3));
+    }
+
+    @Test
+    void jsonIgnoreOmitsComponentAndPassesDefault() {
+      RegoObject obj = (RegoObject) mapper.toRegoValue(new WithIgnored("a", "hidden", 5));
+      assertThat(obj.getProperty("secret")).isNull();
+      assertThat(obj.getProperty("count")).isNull();
+
+      RegoObject input = object("name", new RegoString("a"));
+      input.setProp(new RegoString("secret"), new RegoString("injected"));
+      input.setProp(new RegoString("count"), RegoInt32.of(9));
+
+      assertThat(mapper.fromRegoValue(input, WithIgnored.class))
+          .isEqualTo(new WithIgnored("a", null, 0));
+    }
+
+    @Test
+    void explicitJsonCreatorBeatsCanonicalConstructor() {
+      WithCreator result =
+          mapper.fromRegoValue(object("name", new RegoString("abc")), WithCreator.class);
+
+      assertThat(result).isEqualTo(new WithCreator("ABC", 99));
+    }
+
+    @Test
+    void jsonIncludeNonNullOmitsNullComponent() {
+      RegoObject obj = (RegoObject) mapper.toRegoValue(new NonNullComponent(null, null));
+
+      assertThat(obj.getProperty("nick")).isNull();
+      assertThat(obj.getProperty("other")).isEqualTo(RegoNull.INSTANCE);
+    }
+
+    @Test
+    void toRegoValueNullBoxedComponentIsRegoNull() {
+      RegoObject obj = (RegoObject) mapper.toRegoValue(new Person("a", 1, false, null, 0.0));
+
+      assertThat(obj.getProperty("score")).isEqualTo(RegoNull.INSTANCE);
+    }
+
+    @Test
+    void jsonCreatorFactoryWithIgnoredComponent() {
+      RegoObject input = object("name", new RegoString("a"));
+      input.setProp(new RegoString("secret"), new RegoString("injected"));
+
+      assertThat(mapper.fromRegoValue(input, FactoryWithIgnored.class))
+          .isEqualTo(new FactoryWithIgnored("a", "from-factory"));
+      RegoObject output = (RegoObject) mapper.toRegoValue(new FactoryWithIgnored("a", "x"));
+      assertThat(output.getProperty("secret")).isNull();
+    }
+
+    @Test
+    void roundTripGenericComponent() {
+      final Box<String> result =
+          roundTrip(new Box<>("x"), Box.class);
+
+      assertThat(result).isEqualTo(new Box<>("x"));
+    }
+
+    @Test
+    void roundTripParameterizedCollectionComponents() {
+      final Collections original = new Collections(List.of("a", "b"), Map.of("k", 2));
+
+      assertThat(roundTrip(original, Collections.class))
+          .isEqualTo(original);
+    }
+
+    @Test
+    void roundTripRecordInsidePojo() {
+      final RecordHolder holder = new RecordHolder();
+      holder.setPoint(new Point(1, 2));
+
+      final RecordHolder result =
+          roundTrip(holder, RecordHolder.class);
+
+      assertThat(result.getPoint()).isEqualTo(new Point(1, 2));
+    }
+
+    @Test
+    void roundTripPojoInsideRecord() {
+      final SimplePojo pojo = new SimplePojo();
+      pojo.setName("alice");
+      pojo.setAge(25);
+
+      final WithPojo result =
+          roundTrip(new WithPojo(pojo), WithPojo.class);
+
+      assertThat(result.pojo().getName()).isEqualTo("alice");
+      assertThat(result.pojo().getAge()).isEqualTo(25);
+    }
+
+    @Test
+    void canonicalConstructorFailureBecomesMappingException() {
+      assertThatThrownBy(() -> mapper.fromRegoValue(object("age", RegoInt32.of(-1)), Validated.class))
+          .isInstanceOf(RegoMappingException.class)
+          .hasMessageContaining(Validated.class.getName())
+          .hasRootCauseMessage("age must be >= 0");
+    }
+  }
 }
