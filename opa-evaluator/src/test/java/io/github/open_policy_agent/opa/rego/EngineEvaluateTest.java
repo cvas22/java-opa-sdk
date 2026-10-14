@@ -1,5 +1,6 @@
 package io.github.open_policy_agent.opa.rego;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -407,6 +408,16 @@ class EngineEvaluateTest {
     }
 
     @Test
+    void preparedQueryRecordInputAndResultType() throws IOException {
+      final Engine.PreparedQuery pq = buildDecisionEngine().prepareForEvaluation().build();
+
+      final List<DecisionRecord> results =
+          pq.eval(new AuthzInputRecord(new UserRecord("alice", List.of())), DecisionRecord.class);
+
+      assertEquals(new DecisionRecord(true, "alice", "matched-user-id"), results.get(0));
+    }
+
+    @Test
     void directEvaluate_pojoResultType_aliceAllowed() throws IOException {
       Engine engine = buildDecisionEngine();
       EvaluationContext ctx =
@@ -457,4 +468,11 @@ class EngineEvaluateTest {
       this.reason = reason;
     }
   }
+
+  record UserRecord(String id, List<String> groups) {}
+
+  record AuthzInputRecord(UserRecord user) {}
+
+  record DecisionRecord(
+      boolean allowed, @com.fasterxml.jackson.annotation.JsonProperty("user_id") String userId, String reason) {}
 }

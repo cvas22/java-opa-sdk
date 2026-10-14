@@ -66,8 +66,18 @@ final class CreatorInfo {
       this.genericType = genericType;
     }
 
+    /** A parameter that is never read from input; it always receives the type's default. */
+    static CreatorParam ignored(Class<?> rawType) {
+      return new CreatorParam(null, rawType, rawType);
+    }
+
+    /** The JSON name, or null for an {@linkplain #ignored ignored} parameter. */
     String getJsonName() {
       return jsonName;
+    }
+
+    boolean isIgnored() {
+      return jsonName == null;
     }
 
     Class<?> getRawType() {

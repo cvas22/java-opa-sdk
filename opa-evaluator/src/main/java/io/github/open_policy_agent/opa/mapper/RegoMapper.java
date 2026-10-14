@@ -500,8 +500,11 @@ public class RegoMapper {
 
       for (int i = 0; i < params.size(); i++) {
         CreatorInfo.CreatorParam param = params.get(i);
-        ctorPropertyNames.add(param.getJsonName());
-        RegoValue propValue = obj.getProperty(param.getJsonName());
+        RegoValue propValue = null;
+        if (!param.isIgnored()) {
+          ctorPropertyNames.add(param.getJsonName());
+          propValue = obj.getProperty(param.getJsonName());
+        }
         if (propValue == null || propValue instanceof RegoNull) {
           args[i] = defaultForType(param.getRawType());
         } else {

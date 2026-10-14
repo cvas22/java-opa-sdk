@@ -35,6 +35,8 @@ List<MyResult> results = engine.prepareForEvaluation()
     .eval(myPojoInput, MyResult.class);
 ```
 
+Input and result types can be POJOs or Java records. Records map their components only; other `getX()` methods are ignored.
+
 ### Multiple Queries
 
 ```java
